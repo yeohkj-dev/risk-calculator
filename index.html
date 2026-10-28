@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>仓位风险计算器</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one column on phone; inputs left, results right on desktop. Results stick on wide screens. */
+:root {
+  --bg: #f3f5f6;
+  --panel: #ffffff;
+  --fg: #16212a;
+  --muted: #5b6b76;
+  --line: #dbe2e6;
+  --accent: #0f6e7a;
+  --accent-soft: #e2f1f2;
+  --loss: #c23a3a;
+  --loss-soft: #fbe9e8;
+  --gain: #1d8a55;
+  --gain-soft: #e4f4ea;
+  --warn: #a8670b;
+  --warn-soft: #fbf0dc;
+  --f-sans: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1518; --panel: #172024; --fg: #e4ecef; --muted: #8fa1aa; --line: #27343a;
+    --accent: #4fbac6; --accent-soft: #15333a;
+    --loss: #ef7b74; --loss-soft: #3a1d1d; --gain: #5fcf93; --gain-soft: #163325;
+    --warn: #e7b05a; --warn-soft: #3a2c14;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1518; --panel: #172024; --fg: #e4ecef; --muted: #8fa1aa; --line: #27343a;
+  --accent: #4fbac6; --accent-soft: #15333a;
+  --loss: #ef7b74; --loss-soft: #3a1d1d; --gain: #5fcf93; --gain-soft: #163325;
+  --warn: #e7b05a; --warn-soft: #3a2c14;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--bg); }
+body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--f-sans); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 20px; }
+header h1 { font-size: 1.5rem; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
+.grid { display: grid; gap: 20px; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 820px) {
+  .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .results { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); }
+}
+section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 16px; min-width: 0; }
+h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; font-weight: 600; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row.fx > .field:last-child { grid-column: 1 / -1; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field label { font-size: 0.82rem; color: var(--muted); font-weight: 500; }
+.field .hint { font-size: 0.75rem; color: var(--muted); }
+input[type="number"], select {
+  width: 100%; font: 500 1.05rem var(--f-mono); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-height: 46px;
+  font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: none;
+}
+select { font-family: var(--f-sans); font-size: 0.95rem; }
+input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 3px; }
+.seg button { font: 600 0.9rem var(--f-sans); border: 0; background: transparent; color: var(--muted); padding: 9px 6px; border-radius: 6px; cursor: pointer; min-height: 40px; }
+.seg button[aria-pressed="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.seg.dir button[data-v="long"][aria-pressed="true"] { color: var(--gain); }
+.seg.dir button[data-v="short"][aria-pressed="true"] { color: var(--loss); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { font: 500 0.82rem var(--f-mono); border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+.chips button:hover { border-color: var(--accent); color: var(--accent); }
+.in-sl input { border-color: color-mix(in srgb, var(--loss) 45%, var(--line)); }
+.in-tp input { border-color: color-mix(in srgb, var(--gain) 45%, var(--line)); }
+
+.hero { background: var(--accent-soft); border-radius: 8px; padding: 16px; display: grid; gap: 2px; }
+.hero .k { font-size: 0.8rem; color: var(--accent); font-weight: 600; }
+.hero .v { font: 600 2rem/1.15 var(--f-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.hero .sub { font: 0.85rem var(--f-mono); color: var(--muted); }
+dl.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 0; border-top: 1px solid var(--line); }
+dl.stats > div { padding: 10px 0; border-bottom: 1px solid var(--line); display: grid; gap: 2px; min-width: 0; }
+dl.stats > div:nth-child(odd) { padding-right: 12px; }
+dl.stats > div:nth-child(even) { padding-left: 12px; border-left: 1px solid var(--line); }
+dt { font-size: 0.78rem; color: var(--muted); }
+dd { margin: 0; font: 600 1.05rem var(--f-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+dd.loss { color: var(--loss); } dd.gain { color: var(--gain); }
+
+.bar { position: relative; height: 34px; border-radius: 6px; overflow: hidden; display: flex; font: 600 0.78rem var(--f-mono); }
+.bar .l { background: var(--loss-soft); color: var(--loss); display: flex; align-items: center; justify-content: flex-start; padding: 0 8px; }
+.bar .g { background: var(--gain-soft); color: var(--gain); display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; }
+.bar .entry { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--fg); }
+.bar-legend { display: flex; justify-content: space-between; font: 0.75rem var(--f-mono); color: var(--muted); gap: 8px; }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; font-weight: 600; padding: 6px 10px; border-radius: 6px; }
+.pill.ok { background: var(--gain-soft); color: var(--gain); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--loss-soft); color: var(--loss); }
+.notes { display: grid; gap: 6px; }
+.err { background: var(--loss-soft); color: var(--loss); border-radius: 8px; padding: 12px; font-size: 0.9rem; }
+
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 0.88rem; }
+th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+td { font-family: var(--f-mono); }
+td.dd { color: var(--loss); }
+.foot { color: var(--muted); font-size: 0.78rem; }
+button.reset { justify-self: start; font: 500 0.85rem var(--f-sans); border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 7px 12px; border-radius: 6px; cursor: pointer; }
+button.reset:hover { color: var(--fg); }
+.tabs { max-width: 420px; }
+.tabs button { font-size: 0.95rem; }
+.view { display: grid; gap: 20px; }
+.prose { max-width: 68ch; display: grid; gap: 10px; }
+.prose p { margin: 0; }
+.formula { font: 500 0.95rem var(--f-mono); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; white-space: nowrap; }
+.answer { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.answer > div { border-radius: 8px; padding: 12px 14px; display: grid; gap: 2px; min-width: 0; }
+.answer .a-loss { background: var(--loss-soft); }
+.answer .a-need { background: var(--accent-soft); }
+.answer .a-win { background: var(--gain-soft); }
+.answer .k { font-size: 0.78rem; color: var(--muted); }
+.answer .v { font: 600 1.5rem/1.2 var(--f-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.answer .a-loss .v { color: var(--loss); }
+.answer .a-need .v { color: var(--accent); }
+.answer .a-win .v { color: var(--gain); }
+.answer .s { font: 0.78rem var(--f-mono); color: var(--muted); }
+.story { font-size: 0.92rem; background: var(--bg); border-radius: 8px; padding: 12px 14px; margin: 0; }
+.story b { font-family: var(--f-mono); font-weight: 600; }
+td.need { color: var(--accent); font-weight: 600; }
+.barcell { width: 40%; min-width: 120px; }
+.mini { height: 10px; border-radius: 3px; display: flex; overflow: hidden; background: var(--bg); }
+.mini span:first-child { background: var(--loss); opacity: .75; }
+.mini span:last-child { background: var(--accent); opacity: .75; }
+tr.hl td { background: var(--accent-soft); }
+dl.defs { margin: 0; display: grid; border-top: 1px solid var(--line); }
+dl.defs > div { display: grid; grid-template-columns: minmax(110px, 30%) 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+dl.defs dt { font-size: 0.88rem; color: var(--fg); font-weight: 600; }
+dl.defs dd { font: 400 0.88rem/1.55 var(--f-sans); }
+dl.defs code { font-family: var(--f-mono); font-size: 0.84rem; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+@media (max-width: 560px) { dl.defs > div { grid-template-columns: 1fr; gap: 2px; } }
+@media (max-width: 420px) {
+  .hero .v { font-size: 1.65rem; }
+  section.card { padding: 14px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bar .l, .bar .g, .bar .entry { transition: width .2s ease, left .2s ease; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>仓位风险计算器</h1>
+    <p>输入账户资金、风险比例、入场价和止损价，自动算出该开多少仓位。</p>
+  </header>
+
+  <div class="seg tabs" id="tabs" role="group" aria-label="页面">
+    <button type="button" data-v="calc" aria-pressed="true">计算器</button>
+    <button type="button" data-v="remark" aria-pressed="false">回本说明 Remark</button>
+  </div>
+
+  <div class="view" id="view-calc">
+  <div class="grid">
+    <form id="form" autocomplete="off" style="display:contents">
+    <section class="card" aria-label="输入">
+      <h2>交易品种</h2>
+      <div class="seg" id="mode" role="group" aria-label="品种类型">
+        <button type="button" data-v="units" aria-pressed="true">股票 / 加密货币</button>
+        <button type="button" data-v="forex" aria-pressed="false">外汇 / 黄金 (手)</button>
+      </div>
+
+      <div class="row fx" id="fxRow" hidden>
+        <div class="field">
+          <label for="pipSize">1 点 (pip) =</label>
+          <select id="pipSize">
+            <option value="0.0001">0.0001 (EURUSD 等)</option>
+            <option value="0.01">0.01 (USDJPY / 黄金 XAUUSD)</option>
+            <option value="1">1 (指数)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="pipValue">每手每点价值 ($)</label>
+          <input type="number" id="pipValue" inputmode="decimal" step="any" value="10">
+          <span class="hint">EURUSD = 10，XAUUSD = 1</span>
+        </div>
+        <div class="field">
+          <label for="contract">每手合约大小</label>
+          <input type="number" id="contract" inputmode="decimal" step="any" value="100000">
+          <span class="hint">外汇 100,000，黄金 100 盎司</span>
+        </div>
+      </div>
+
+      <h2>账户</h2>
+      <div class="row">
+        <div class="field">
+          <label for="balance">账户资金</label>
+          <input type="number" id="balance" inputmode="decimal" step="any" value="10000">
+        </div>
+        <div class="field">
+          <label for="riskPct">单笔风险 (%)</label>
+          <input type="number" id="riskPct" inputmode="decimal" step="any" value="1">
+        </div>
+      </div>
+      <div class="chips" id="riskChips" aria-label="常用风险比例">
+        <button type="button" data-v="0.5">0.5%</button>
+        <button type="button" data-v="1">1%</button>
+        <button type="button" data-v="2">2%</button>
+        <button type="button" data-v="3">3%</button>
+      </div>
+
+      <h2>交易</h2>
+      <div class="seg dir" id="dir" role="group" aria-label="方向">
+        <button type="button" data-v="long" aria-pressed="true">做多 Long</button>
+        <button type="button" data-v="short" aria-pressed="false">做空 Short</button>
+      </div>
+      <div class="field">
+        <label for="entry">入场价 Entry</label>
+        <input type="number" id="entry" inputmode="decimal" step="any" value="100">
+      </div>
+      <div class="row">
+        <div class="field in-sl">
+          <label for="sl">止损价 Stop Loss</label>
+          <input type="number" id="sl" inputmode="decimal" step="any" value="95">
+        </div>
+        <div class="field in-tp">
+          <label for="tp">止盈价 Take Profit</label>
+          <input type="number" id="tp" inputmode="decimal" step="any" value="112">
+          <span class="hint">可留空</span>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="lev">杠杆 (倍)</label>
+          <input type="number" id="lev" inputmode="decimal" step="any" value="1">
+        </div>
+        <div class="field">
+          <label for="fee">手续费 (%，单边)</label>
+          <input type="number" id="fee" inputmode="decimal" step="any" value="0">
+        </div>
+      </div>
+      <button type="button" class="reset" id="reset">恢复示例数值</button>
+    </section>
+    </form>
+
+    <section class="card results" aria-label="结果" aria-live="polite">
+      <h2>结果</h2>
+      <div id="error" class="err" hidden></div>
+      <div id="out">
+        <div style="display:grid;gap:16px">
+          <div class="hero">
+            <span class="k" id="sizeLabel">建议仓位</span>
+            <span class="v" id="size">—</span>
+            <span class="sub" id="sizeSub">—</span>
+          </div>
+          <dl class="stats">
+            <div><dt>最多亏损 (止损触发)</dt><dd class="loss" id="riskAmt">—</dd></div>
+            <div><dt>潜在盈利 (止盈触发)</dt><dd class="gain" id="profit">—</dd></div>
+            <div><dt>盈亏比 R:R</dt><dd id="rr">—</dd></div>
+            <div><dt>止损距离</dt><dd id="slDist">—</dd></div>
+            <div><dt>仓位价值</dt><dd id="notional">—</dd></div>
+            <div><dt>所需保证金</dt><dd id="margin">—</dd></div>
+            <div><dt>保本胜率</dt><dd id="breakeven">—</dd></div>
+            <div><dt>占用资金比例</dt><dd id="exposure">—</dd></div>
+          </dl>
+          <div style="display:grid;gap:6px">
+            <div class="bar" id="bar"><div class="l" id="barL">SL</div><div class="g" id="barG">TP</div><div class="entry" id="barE"></div></div>
+            <div class="bar-legend"><span id="lgSL">—</span><span id="lgE">—</span><span id="lgTP">—</span></div>
+          </div>
+          <div class="notes" id="notes"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>连续亏损模拟</h2>
+    <p class="foot" style="margin:0">每笔都按当前风险比例下单，连续止损后账户剩多少。</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>连续亏损</th><th>剩余资金</th><th>累计回撤</th><th>回本需涨</th></tr></thead>
+        <tbody id="ddBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  </div>
+
+  <div class="view" id="view-remark" hidden>
+    <section class="card">
+      <h2>回撤后要赚多少才能回本</h2>
+      <div class="seg" id="ddMode" role="group" aria-label="输入方式">
+        <button type="button" data-v="pct" aria-pressed="true">输入亏损 %</button>
+        <button type="button" data-v="money" aria-pressed="false">输入本金和现在资金</button>
+      </div>
+      <div class="row" id="ddPctRow">
+        <div class="field">
+          <label for="ddPct">已经亏了 (回撤 %)</label>
+          <input type="number" id="ddPct" inputmode="decimal" step="any" value="20">
+        </div>
+        <div class="field">
+          <label for="ddBase">本金 (可选，用来算金额)</label>
+          <input type="number" id="ddBase" inputmode="decimal" step="any" value="10000">
+        </div>
+      </div>
+      <div class="row" id="ddMoneyRow" hidden>
+        <div class="field">
+          <label for="ddStart">本金 / 最高资金</label>
+          <input type="number" id="ddStart" inputmode="decimal" step="any" value="10000">
+        </div>
+        <div class="field">
+          <label for="ddNow">现在资金</label>
+          <input type="number" id="ddNow" inputmode="decimal" step="any" value="8000">
+        </div>
+      </div>
+      <div class="chips" id="ddChips" aria-label="常见回撤">
+        <button type="button" data-v="10">10%</button>
+        <button type="button" data-v="20">20%</button>
+        <button type="button" data-v="30">30%</button>
+        <button type="button" data-v="50">50%</button>
+        <button type="button" data-v="70">70%</button>
+      </div>
+      <div id="ddErr" class="err" hidden></div>
+      <div id="ddOut" style="display:grid;gap:14px">
+        <div class="answer">
+          <div class="a-loss"><span class="k">回撤</span><span class="v" id="rDD">—</span><span class="s" id="rDDs">—</span></div>
+          <div class="a-need"><span class="k">回本需要赚</span><span class="v" id="rNeed">—</span><span class="s" id="rNeeds">—</span></div>
+          <div class="a-win"><span class="k">超过这个 % 才开始赚钱</span><span class="v" id="rWin">—</span><span class="s" id="rWins">—</span></div>
+        </div>
+        <p class="story" id="rStory"></p>
+      </div>
+      <div class="formula">回本需要赚 % = 回撤 % ÷ (100% − 回撤 %)</div>
+      <div class="prose">
+        <p>为什么亏 20% 不是赚 20% 就回本？因为之后赚钱是用<b>剩下的钱</b>去赚。10,000 亏 20% 剩 8,000，8,000 赚 20% 只有 9,600，还差 400。要赚 25% 才回到 10,000，超过 25% 的部分才是真正的利润。</p>
+        <p>亏得越多，回本越难，而且难度加速上升。亏 50% 要翻倍 (+100%) 才回本，亏 90% 要赚 9 倍 (+900%)。所以控制每笔风险、避免大回撤，比追求高收益更重要。</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>回撤与回本对照表</h2>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>回撤</th><th>回本需赚</th><th>10,000 剩下</th><th class="barcell" style="text-align:left">亏损 (红) vs 回本难度 (蓝)</th></tr></thead>
+          <tbody id="recBody"></tbody>
+        </table>
+      </div>
+      <p class="foot" style="margin:0">高亮的那一行是你上面输入的回撤。</p>
+    </section>
+
+    <section class="card">
+      <h2>计算器怎么算</h2>
+      <p class="foot" style="margin:0">用计算器的示例数值说明：资金 10,000，风险 1%，做多，入场 100，止损 95，止盈 112，杠杆 1 倍，没有手续费。</p>
+      <dl class="defs">
+        <div><dt>最多亏损</dt><dd><code>账户资金 × 风险 %</code><br>10,000 × 1% = 100。止损被打到时最多亏这么多。</dd></div>
+        <div><dt>止损距离</dt><dd><code>|入场价 − 止损价|</code><br>|100 − 95| = 5，即 5%。</dd></div>
+        <div><dt>建议仓位 (股票 / 加密货币)</dt><dd><code>最多亏损 ÷ 每单位亏损</code><br>100 ÷ 5 = 20 单位。有手续费时，每单位亏损 = 止损距离 + 手续费 % × (入场价 + 止损价)，开仓和平仓各算一次。</dd></div>
+        <div><dt>建议手数 (外汇 / 黄金)</dt><dd><code>最多亏损 ÷ (止损点数 × 每手每点价值)</code><br>止损点数 = 止损距离 ÷ 1 点大小。例：EURUSD 入场 1.0850、止损 1.0820 = 30 点，100 ÷ (30 × 10) = 0.33 手。</dd></div>
+        <div><dt>潜在盈利</dt><dd><code>仓位 × |止盈价 − 入场价|</code><br>20 × 12 = 240。</dd></div>
+        <div><dt>盈亏比 R:R</dt><dd><code>潜在盈利 ÷ 最多亏损</code><br>240 ÷ 100 = 1 : 2.4。每冒 1 块钱风险，有机会赚 2.4 块。</dd></div>
+        <div><dt>保本胜率</dt><dd><code>1 ÷ (1 + R:R)</code><br>1 ÷ 3.4 = 29.4%。长期胜率高于这个数就赚钱，低于就亏钱。</dd></div>
+        <div><dt>仓位价值</dt><dd><code>仓位 × 入场价</code><br>20 × 100 = 2,000。外汇是 手数 × 合约大小 × 入场价。</dd></div>
+        <div><dt>所需保证金</dt><dd><code>仓位价值 ÷ 杠杆</code><br>2,000 ÷ 1 = 2,000，用 10 倍杠杆只要 200。杠杆不改变亏损金额，亏多少由仓位和止损决定。</dd></div>
+        <div><dt>占用资金比例</dt><dd><code>所需保证金 ÷ 账户资金</code><br>2,000 ÷ 10,000 = 20%。超过 100% 表示钱不够开这个仓位。</dd></div>
+        <div><dt>连续亏损模拟</dt><dd><code>剩余资金 = 资金 × (1 − 风险 %)<sup>N</sup></code><br>每笔都按当时剩下的资金算风险，所以 1% 风险连亏 10 笔是 −9.6%，不是 −10%。「回本需涨」用上面的回本公式算。</dd></div>
+      </dl>
+    </section>
+  </div>
+
+  <p class="foot">计算仅供参考，不构成投资建议。股票 / 加密货币模式下，手续费按开仓和平仓各收一次计入亏损与盈利；外汇模式不计手续费，仓位价值按报价货币计算。</p>
+</div>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const ids = ["balance", "riskPct", "entry", "sl", "tp", "lev", "fee", "pipSize", "pipValue", "contract"];
+  const DEFAULTS = { mode: "units", dir: "long", balance: "10000", riskPct: "1", entry: "100", sl: "95", tp: "112", lev: "1", fee: "0", pipSize: "0.0001", pipValue: "10", contract: "100000" };
+  const KEY = "risk-calc-v1";
+  let state = { mode: "units", dir: "long" };
+
+  const fmt = (n, d = 2) => isFinite(n) ? n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }) : "—";
+  const money = n => "$" + fmt(n);
+  const smart = n => {
+    if (!isFinite(n)) return "—";
+    const a = Math.abs(n);
+    const d = a >= 1000 ? 2 : a >= 1 ? 4 : a >= 0.01 ? 6 : 8;
+    return n.toLocaleString("en-US", { maximumFractionDigits: d });
+  };
+  const num = id => parseFloat($(id).value);
+
+  function setSeg(groupId, v) {
+    state[groupId] = v;
+    $(groupId).querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+  }
+
+  function load() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
+    const s = Object.assign({}, DEFAULTS, saved || {});
+    ids.forEach(id => { $(id).value = s[id]; });
+    setSeg("mode", s.mode); setSeg("dir", s.dir);
+  }
+  function save() {
+    const s = { mode: state.mode, dir: state.dir };
+    ids.forEach(id => { s[id] = $(id).value; });
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {}
+  }
+
+  function showError(msg) {
+    $("error").textContent = msg; $("error").hidden = false; $("out").hidden = true;
+  }
+
+  function calc() {
+    const forex = state.mode === "forex";
+    $("fxRow").hidden = !forex;
+    const long = state.dir === "long";
+    const bal = num("balance"), rp = num("riskPct"), entry = num("entry"), sl = num("sl");
+    const tpRaw = $("tp").value.trim(), tp = tpRaw === "" ? NaN : parseFloat(tpRaw);
+    const lev = num("lev") > 0 ? num("lev") : 1;
+    const feePct = num("fee") > 0 ? num("fee") / 100 : 0;
+    const pipSize = num("pipSize"), pipValue = num("pipValue"), contract = num("contract") > 0 ? num("contract") : 100000;
+
+    renderDD(bal, rp);
+    save();
+
+    if (!(bal > 0)) return showError("请输入大于 0 的账户资金。");
+    if (!(rp > 0)) return showError("请输入大于 0 的风险比例。");
+    if (!(entry > 0) || !(sl > 0)) return showError("请填写入场价和止损价。");
+    if (entry === sl) return showError("止损价不能等于入场价。");
+    if (long && sl > entry) return showError("做多时止损价要低于入场价。要做空请切换到「做空 Short」。");
+    if (!long && sl < entry) return showError("做空时止损价要高于入场价。要做多请切换到「做多 Long」。");
+    if (forex && (!(pipValue > 0))) return showError("请输入每手每点价值。");
+    const tpValid = isFinite(tp) && tp > 0 && (long ? tp > entry : tp < entry);
+    $("error").hidden = true; $("out").hidden = false;
+
+    const riskAmt = bal * rp / 100;
+    const slDist = Math.abs(entry - sl);
+    const tpDist = tpValid ? Math.abs(tp - entry) : NaN;
+
+    let size, notional, lossAtSL, profitAtTP, sizeText, sizeSub, slText;
+    if (forex) {
+      const pips = slDist / pipSize;
+      size = riskAmt / (pips * pipValue);
+      const lossPerLot = pips * pipValue;
+      lossAtSL = size * lossPerLot;
+      profitAtTP = tpValid ? size * (tpDist / pipSize) * pipValue : NaN;
+      notional = size * contract * entry;
+      sizeText = fmt(size, 2) + " 手";
+      sizeSub = fmt(size * 10, 1) + " 迷你手 · " + fmt(size * 100, 0) + " 微型手";
+      slText = fmt(pips, 1) + " 点";
+    } else {
+      // loss per unit including round-trip fee
+      const perUnit = slDist + feePct * (entry + sl);
+      size = riskAmt / perUnit;
+      notional = size * entry;
+      lossAtSL = size * perUnit;
+      profitAtTP = tpValid ? size * (tpDist - feePct * (entry + tp)) : NaN;
+      sizeText = smart(size) + " 单位";
+      sizeSub = "整数股 " + fmt(Math.floor(size), 0) + " 股 · 价值 " + money(notional);
+      slText = smart(slDist) + " (" + fmt(slDist / entry * 100, 2) + "%)";
+    }
+
+    const margin = notional / lev;
+    const rr = tpValid ? profitAtTP / lossAtSL : NaN;
+    const be = tpValid && rr > 0 ? 1 / (1 + rr) * 100 : NaN;
+
+    $("sizeLabel").textContent = forex ? "建议手数" : "建议仓位数量";
+    $("size").textContent = sizeText;
+    $("sizeSub").textContent = sizeSub;
+    $("riskAmt").textContent = "−" + money(lossAtSL);
+    $("profit").textContent = tpValid ? "+" + money(profitAtTP) : "未设止盈";
+    $("rr").textContent = tpValid ? "1 : " + fmt(rr, 2) : "—";
+    $("slDist").textContent = slText;
+    $("notional").textContent = money(notional);
+    $("margin").textContent = money(margin);
+    $("breakeven").textContent = isFinite(be) ? fmt(be, 1) + "%" : "—";
+    const expo = margin / bal * 100;
+    $("exposure").textContent = fmt(expo, 1) + "%";
+
+    // price bar
+    const total = tpValid ? slDist + tpDist : slDist * 2;
+    const lw = slDist / total * 100;
+    $("barL").style.width = lw + "%";
+    $("barG").style.width = (100 - lw) + "%";
+    $("barG").textContent = tpValid ? "TP" : "";
+    $("barG").style.opacity = tpValid ? "1" : "0.35";
+    $("barE").style.left = "calc(" + lw + "% - 1px)";
+    $("lgSL").textContent = "SL " + smart(sl);
+    $("lgE").textContent = "Entry " + smart(entry);
+    $("lgTP").textContent = tpValid ? "TP " + smart(tp) : "TP —";
+
+    // notes
+    const notes = [];
+    if (rp <= 1) notes.push(["ok", "风险比例 " + fmt(rp, 2) + "% 在稳健范围内"]);
+    else if (rp <= 2) notes.push(["warn", "风险比例 " + fmt(rp, 2) + "% 偏积极，连续亏损时回撤会较快"]);
+    else notes.push(["bad", "风险比例 " + fmt(rp, 2) + "% 过高，多数交易者单笔不超过 2%"]);
+    if (tpValid) {
+      if (rr >= 2) notes.push(["ok", "盈亏比 1:" + fmt(rr, 2) + "，胜率超过 " + fmt(be, 0) + "% 就能赚钱"]);
+      else if (rr >= 1) notes.push(["warn", "盈亏比 1:" + fmt(rr, 2) + "，需要胜率超过 " + fmt(be, 0) + "% 才能保本"]);
+      else notes.push(["bad", "盈亏比低于 1:1，赚的比亏的少"]);
+    } else if (tpRaw !== "") {
+      notes.push(["bad", long ? "做多时止盈价要高于入场价" : "做空时止盈价要低于入场价"]);
+    }
+    if (expo > 100) notes.push(["bad", "所需保证金 " + money(margin) + " 超过账户资金。提高杠杆、放宽止损或降低风险比例"]);
+    $("notes").innerHTML = notes.map(([c, t]) => '<span class="pill ' + c + '">' + t + "</span>").join("");
+  }
+
+  function renderDD(bal, rp) {
+    const rows = [];
+    if (bal > 0 && rp > 0 && rp < 100) {
+      [1, 3, 5, 10, 15, 20].forEach(n => {
+        const left = bal * Math.pow(1 - rp / 100, n);
+        const dd = (1 - left / bal) * 100;
+        const recover = (bal / left - 1) * 100;
+        rows.push("<tr><td>" + n + " 笔</td><td>" + money(left) + "</td><td class=\"dd\">−" + fmt(dd, 1) + "%</td><td>+" + fmt(recover, 1) + "%</td></tr>");
+      });
+    }
+    $("ddBody").innerHTML = rows.join("") || '<tr><td colspan="4">输入资金和风险比例后显示</td></tr>';
+  }
+
+  // ---- tabs ----
+  function showView(v) {
+    setSeg("tabs", v);
+    $("view-calc").hidden = v !== "calc";
+    $("view-remark").hidden = v !== "remark";
+  }
+  $("tabs").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    showView(b.dataset.v);
+    try { history.replaceState(null, "", "#" + b.dataset.v); } catch (err) {}
+  });
+
+  // ---- drawdown recovery ----
+  const recoverPct = dd => dd / (100 - dd) * 100;
+  const DD_ROWS = [5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90];
+  function recCalc() {
+    const byMoney = state.ddMode === "money";
+    $("ddPctRow").hidden = byMoney;
+    $("ddMoneyRow").hidden = !byMoney;
+    $("ddChips").hidden = byMoney;
+    let dd, base, now;
+    if (byMoney) {
+      base = num("ddStart"); now = num("ddNow");
+      if (!(base > 0) || !(now > 0)) return recErr("请输入大于 0 的本金和现在资金。");
+      if (now >= base) return recErr("现在资金没有低于本金，没有回撤。你比本金多了 " + fmt((now / base - 1) * 100, 2) + "%，已经在赚钱。");
+      dd = (1 - now / base) * 100;
+    } else {
+      dd = num("ddPct"); base = num("ddBase");
+      if (!(dd > 0) || dd >= 100) return recErr("回撤要大于 0% 并且小于 100%。");
+      now = base > 0 ? base * (1 - dd / 100) : NaN;
+    }
+    $("ddErr").hidden = true; $("ddOut").hidden = false;
+    const need = recoverPct(dd);
+    const hasMoney = base > 0;
+    const after = now * (1 + (need + 10) / 100);
+    $("rDD").textContent = "−" + fmt(dd, 2) + "%";
+    $("rDDs").textContent = hasMoney ? money(base) + " → " + money(now) : "—";
+    $("rNeed").textContent = "+" + fmt(need, 2) + "%";
+    $("rNeeds").textContent = hasMoney ? "要赚回 " + money(base - now) : "—";
+    $("rWin").textContent = "> " + fmt(need, 2) + "%";
+    $("rWins").textContent = hasMoney ? "资金超过 " + money(base) : "—";
+    $("rStory").innerHTML = hasMoney
+      ? "本金 <b>" + money(base) + "</b> 亏了 <b>" + fmt(dd, 2) + "%</b>，剩 <b>" + money(now) + "</b>。用剩下的钱要赚 <b>" + fmt(need, 2) + "%</b> 才回到 <b>" + money(base) + "</b>。如果赚了 <b>" + fmt(need + 10, 2) + "%</b>，资金变成 <b>" + money(after) + "</b>，其中只有 <b>" + money(after - base) + "</b> 是真正的利润。"
+      : "亏了 <b>" + fmt(dd, 2) + "%</b> 之后，要用剩下的钱赚 <b>" + fmt(need, 2) + "%</b> 才回本，超过这个 % 才开始赚钱。";
+    renderRec(dd);
+  }
+  function recErr(msg) {
+    $("ddErr").textContent = msg; $("ddErr").hidden = false; $("ddOut").hidden = true;
+    renderRec(NaN);
+  }
+  function renderRec(cur) {
+    const rows = DD_ROWS.slice();
+    if (isFinite(cur) && !rows.some(r => Math.abs(r - cur) < 1e-9)) { rows.push(cur); rows.sort((a, b) => a - b); }
+    // square-root scale so the 900% row doesn't flatten the small ones
+    const max = Math.sqrt(recoverPct(90));
+    const w = v => Math.min(Math.sqrt(v) / max * 50, 50);
+    $("recBody").innerHTML = rows.map(dd => {
+      const need = recoverPct(dd);
+      const hl = isFinite(cur) && Math.abs(dd - cur) < 1e-9 ? ' class="hl"' : "";
+      return "<tr" + hl + "><td>−" + fmt(dd, dd % 1 ? 2 : 0) + '%</td><td class="need">+' + fmt(need, 1) + "%</td><td>" + money(10000 * (1 - dd / 100)) + "</td>" +
+        '<td class="barcell"><div class="mini"><span style="width:' + w(dd) + '%"></span><span style="width:' + w(need) + '%"></span></div></td></tr>';
+    }).join("");
+  }
+  ["ddPct", "ddBase", "ddStart", "ddNow"].forEach(id => $(id).addEventListener("input", recCalc));
+  $("ddMode").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    setSeg("ddMode", b.dataset.v); recCalc();
+  });
+  $("ddChips").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    $("ddPct").value = b.dataset.v; recCalc();
+  });
+
+  ["mode", "dir"].forEach(g => $(g).addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    setSeg(g, b.dataset.v);
+    if (g === "mode") {
+      // sensible fallback example values when switching
+      if (b.dataset.v === "forex" && $("entry").value === DEFAULTS.entry && $("sl").value === DEFAULTS.sl) {
+        $("entry").value = "1.0850"; $("sl").value = "1.0820"; $("tp").value = "1.0940";
+      } else if (b.dataset.v === "units" && $("entry").value === "1.0850") {
+        $("entry").value = DEFAULTS.entry; $("sl").value = DEFAULTS.sl; $("tp").value = DEFAULTS.tp;
+      }
+    }
+    calc();
+  }));
+  $("riskChips").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    $("riskPct").value = b.dataset.v; calc();
+  });
+  $("pipSize").addEventListener("change", () => {
+    const v = $("pipSize").value;
+    if (v === "0.01" && $("pipValue").value === "10") { $("pipValue").value = "1"; $("contract").value = "100"; }
+    else if (v === "0.0001" && $("pipValue").value === "1") { $("pipValue").value = "10"; $("contract").value = "100000"; }
+    calc();
+  });
+  $("reset").addEventListener("click", () => {
+    ids.forEach(id => { $(id).value = DEFAULTS[id]; });
+    setSeg("mode", DEFAULTS.mode); setSeg("dir", DEFAULTS.dir); calc();
+  });
+  ids.forEach(id => $(id).addEventListener("input", calc));
+  $("form").addEventListener("submit", e => e.preventDefault());
+
+  load();
+  calc();
+  setSeg("ddMode", "pct");
+  recCalc();
+  showView(location.hash === "#remark" ? "remark" : "calc");
+})();
+</script>
+</body>
+</html>

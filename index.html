@@ -121,7 +121,14 @@ td.dd { color: var(--loss); }
 .foot { color: var(--muted); font-size: 0.78rem; }
 button.reset { justify-self: start; font: 500 0.85rem var(--f-sans); border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 7px 12px; border-radius: 6px; cursor: pointer; }
 button.reset:hover { color: var(--fg); }
-.tabs { max-width: 420px; }
+.field .lbl { font-size: 0.82rem; color: var(--muted); font-weight: 500; }
+.seg.light button[data-v="green"][aria-pressed="true"] { color: var(--gain); }
+.seg.light button[data-v="yellow"][aria-pressed="true"] { color: var(--warn); }
+.seg.light button[data-v="red"][aria-pressed="true"] { color: var(--loss); }
+.verdict { border-radius: 8px; padding: 10px 14px; font-weight: 700; font-size: 1rem; }
+.verdict.ok { background: var(--gain-soft); color: var(--gain); }
+.verdict.bad { background: var(--loss-soft); color: var(--loss); }
+.tabs { max-width: 520px; }
 .tabs button { font-size: 0.95rem; }
 .view { display: grid; gap: 20px; }
 .prose { max-width: 68ch; display: grid; gap: 10px; }
@@ -166,15 +173,145 @@ dl.defs code { font-family: var(--f-mono); font-size: 0.84rem; background: var(-
 <div class="wrap">
   <header>
     <h1>仓位风险计算器</h1>
-    <p>输入账户资金、风险比例、入场价和止损价，自动算出该开多少仓位。</p>
+    <p>按 KJ System v1.0 第 6 关：选灯号和级别，填进场价和结构低点，算出买多少股。</p>
   </header>
 
   <div class="seg tabs" id="tabs" role="group" aria-label="页面">
-    <button type="button" data-v="calc" aria-pressed="true">计算器</button>
-    <button type="button" data-v="remark" aria-pressed="false">回本说明 Remark</button>
+    <button type="button" data-v="kj" aria-pressed="true">KJ 仓位</button>
+    <button type="button" data-v="calc" aria-pressed="false">通用计算器</button>
+    <button type="button" data-v="remark" aria-pressed="false">回本说明</button>
   </div>
 
-  <div class="view" id="view-calc">
+  <div class="view" id="view-kj">
+    <div class="grid">
+      <section class="card" aria-label="KJ 仓位输入">
+        <h2>规则</h2>
+        <div class="field">
+          <span class="lbl">大盘灯号</span>
+          <div class="seg light" id="kjLight" role="group" aria-label="大盘灯号">
+            <button type="button" data-v="green" aria-pressed="true">绿灯 0.5%</button>
+            <button type="button" data-v="yellow" aria-pressed="false">黄灯 0.35%</button>
+            <button type="button" data-v="red" aria-pressed="false">红灯 0.25%</button>
+          </div>
+          <span class="hint">连续 3 笔止损，自动降一级。</span>
+        </div>
+        <div class="field">
+          <span class="lbl">股票级别</span>
+          <div class="seg" id="kjGrade" role="group" aria-label="股票级别">
+            <button type="button" data-v="A" aria-pressed="true">A 全仓</button>
+            <button type="button" data-v="B" aria-pressed="false">B 半仓</button>
+            <button type="button" data-v="C" aria-pressed="false">C ¼ 仓</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl">买点类型</span>
+          <div class="seg" id="kjSetup" role="group" aria-label="买点类型">
+            <button type="button" data-v="A" aria-pressed="true">A 突破</button>
+            <button type="button" data-v="B" aria-pressed="false">B 回调</button>
+            <button type="button" data-v="C" aria-pressed="false">C 跌穿收回</button>
+            <button type="button" data-v="D" aria-pressed="false">D 回踩 200</button>
+          </div>
+          <span class="hint" id="kjSetupHint"></span>
+        </div>
+        <div class="row">
+          <div class="field">
+            <span class="lbl">事件风险 (财报 / 生物科技)</span>
+            <div class="seg" id="kjEvent" role="group" aria-label="事件风险">
+              <button type="button" data-v="no" aria-pressed="true">没有</button>
+              <button type="button" data-v="yes" aria-pressed="false">有，减半</button>
+            </div>
+          </div>
+          <div class="field">
+            <span class="lbl">这笔是</span>
+            <div class="seg" id="kjEntry" role="group" aria-label="新仓或买回">
+              <button type="button" data-v="new" aria-pressed="true">新仓</button>
+              <button type="button" data-v="rebuy" aria-pressed="false">买回，减半</button>
+            </div>
+          </div>
+        </div>
+
+        <h2>账户</h2>
+        <div class="field">
+          <label for="kjAcc">账户金额 (USD)</label>
+          <input type="number" id="kjAcc" inputmode="decimal" step="any" value="50000">
+          <span class="hint">示例数值，请改成你的。只存在这台设备的浏览器里。</span>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="kjHeld">现有持仓占账户 (%)</label>
+            <input type="number" id="kjHeld" inputmode="decimal" step="any" value="0">
+          </div>
+          <div class="field">
+            <label for="kjOpen">现有持仓总风险 (%)</label>
+            <input type="number" id="kjOpen" inputmode="decimal" step="any" value="0">
+            <span class="hint">全部打到止损亏多少</span>
+          </div>
+        </div>
+
+        <h2>交易</h2>
+        <div class="row">
+          <div class="field">
+            <label for="kjEn">进场价</label>
+            <input type="number" id="kjEn" inputmode="decimal" step="any" value="77">
+          </div>
+          <div class="field">
+            <label for="kjLo">结构低点</label>
+            <input type="number" id="kjLo" inputmode="decimal" step="any" value="73">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="kjAtr">ATR (日)</label>
+            <input type="number" id="kjAtr" inputmode="decimal" step="any" value="3">
+          </div>
+          <div class="field">
+            <label for="kjAdr">ADR %</label>
+            <input type="number" id="kjAdr" inputmode="decimal" step="any" value="4.5">
+          </div>
+        </div>
+        <div class="field in-tp">
+          <label for="kjTp">第一目标价</label>
+          <input type="number" id="kjTp" inputmode="decimal" step="any" value="100">
+        </div>
+        <button type="button" class="reset" id="kjReset">恢复示例数值</button>
+      </section>
+
+      <section class="card results" aria-label="KJ 仓位结果" aria-live="polite">
+        <h2>结果</h2>
+        <div id="kjErr" class="err" hidden></div>
+        <div id="kjOut" style="display:grid;gap:16px">
+          <div class="verdict" id="kjVerdict"></div>
+          <div class="hero">
+            <span class="k">买入股数</span>
+            <span class="v" id="kjShares">—</span>
+            <span class="sub" id="kjSharesSub">—</span>
+          </div>
+          <dl class="stats">
+            <div><dt>止损价</dt><dd class="loss" id="kjStop">—</dd></div>
+            <div><dt>止损 %</dt><dd id="kjPct">—</dd></div>
+            <div><dt>止损 ÷ ADR</dt><dd id="kjRatio">—</dd></div>
+            <div><dt>R:R (到目标)</dt><dd id="kjRR">—</dd></div>
+            <div><dt>打到止损亏</dt><dd class="loss" id="kjLoss">—</dd></div>
+            <div><dt>这笔实际风险</dt><dd id="kjRisk">—</dd></div>
+            <div><dt>加上后总风险</dt><dd id="kjTotalRisk">—</dd></div>
+            <div><dt>加上后总仓位</dt><dd id="kjTotalPos">—</dd></div>
+          </dl>
+          <div class="notes" id="kjNotes"></div>
+          <div style="display:grid;gap:8px">
+            <h2>卖出计划</h2>
+            <div class="tbl-wrap">
+              <table>
+                <thead><tr><th>到哪里</th><th>价格</th><th>卖出</th><th>动作</th></tr></thead>
+                <tbody id="kjPlan"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="view" id="view-calc" hidden>
   <div class="grid">
     <form id="form" autocomplete="off" style="display:contents">
     <section class="card" aria-label="输入">
@@ -362,8 +499,24 @@ dl.defs code { font-family: var(--f-mono); font-size: 0.84rem; background: var(-
     </section>
 
     <section class="card">
-      <h2>计算器怎么算</h2>
-      <p class="foot" style="margin:0">用计算器的示例数值说明：资金 10,000，风险 1%，做多，入场 100，止损 95，止盈 112，杠杆 1 倍，没有手续费。</p>
+      <h2>KJ 仓位怎么算</h2>
+      <p class="foot" style="margin:0">用 KJ 仓位页的示例数值说明：账户 50,000，绿灯，A 级，A 型，进场 77，结构低点 73，ATR 3，ADR 4.5%，目标 100。</p>
+      <dl class="defs">
+        <div><dt>止损价</dt><dd><code>结构低点 − 0.5 × ATR</code><br>73 − 1.5 = 71.50。C 型用 0.25 × ATR，低点取跌穿时的最低点。</dd></div>
+        <div><dt>每股风险</dt><dd><code>进场价 − 止损价</code><br>77 − 71.50 = 5.50，止损 7.1%。</dd></div>
+        <div><dt>买入股数</dt><dd><code>账户 × 灯号风险 % × 级别系数 × 事件系数 ÷ 每股风险</code><br>50,000 × 0.5% × 1 × 1 ÷ 5.50 = 45.4，向下取整 45 股。级别系数 A 1、B ½、C ¼；事件风险和买回单各再减半。</dd></div>
+        <div><dt>单只上限</dt><dd><code>A 25%、B 12.5%、C 6%</code><br>算出的仓位超过上限时，股数按上限减少，实际风险也跟着变小。</dd></div>
+        <div><dt>止损宽度</dt><dd><code>止损 % ÷ ADR % ≥ 1.2</code><br>7.14 ÷ 4.5 = 1.59 倍，通过。不够宽容易被扫掉。</dd></div>
+        <div><dt>止损上限</dt><dd><code>绿 8%、黄 6%、红 5%</code><br>超过上限就等更紧的进场点，不追。</dd></div>
+        <div><dt>R:R</dt><dd><code>(目标价 − 进场价) ÷ 每股风险</code><br>23 ÷ 5.50 = 4.2R。低于 2R 不做。</dd></div>
+        <div><dt>总风险 / 总仓位</dt><dd><code>总风险 ≤ 3%；总仓位 ≤ 绿 100%、黄 50%、红 20%</code><br>把现有持仓填进去，页面会算加上这笔之后还在不在上限内。</dd></div>
+        <div><dt>可用级别</dt><dd><code>绿 A、B、C；黄 A、B；红只做 A 级 + A 型</code><br>D 型只用于 B 级。</dd></div>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>通用计算器怎么算</h2>
+      <p class="foot" style="margin:0">用通用计算器的示例数值说明：资金 10,000，风险 1%，做多，入场 100，止损 95，止盈 112，杠杆 1 倍，没有手续费。</p>
       <dl class="defs">
         <div><dt>最多亏损</dt><dd><code>账户资金 × 风险 %</code><br>10,000 × 1% = 100。止损被打到时最多亏这么多。</dd></div>
         <div><dt>止损距离</dt><dd><code>|入场价 − 止损价|</code><br>|100 − 95| = 5，即 5%。</dd></div>
@@ -534,6 +687,7 @@ dl.defs code { font-family: var(--f-mono); font-size: 0.84rem; background: var(-
   // ---- tabs ----
   function showView(v) {
     setSeg("tabs", v);
+    $("view-kj").hidden = v !== "kj";
     $("view-calc").hidden = v !== "calc";
     $("view-remark").hidden = v !== "remark";
   }
@@ -542,6 +696,122 @@ dl.defs code { font-family: var(--f-mono); font-size: 0.84rem; background: var(-
     showView(b.dataset.v);
     try { history.replaceState(null, "", "#" + b.dataset.v); } catch (err) {}
   });
+
+  // ---- KJ System v1.0 sizing (gates 5 + 6) ----
+  const KJ_LIGHT = {
+    green: { name: "绿灯", risk: 0.5, maxStop: 8, posCap: 100, grades: "ABC" },
+    yellow: { name: "黄灯", risk: 0.35, maxStop: 6, posCap: 50, grades: "AB" },
+    red: { name: "红灯", risk: 0.25, maxStop: 5, posCap: 20, grades: "A" }
+  };
+  const KJ_GRADE = { A: { factor: 1, cap: 25 }, B: { factor: 0.5, cap: 12.5 }, C: { factor: 0.25, cap: 6 } };
+  const KJ_SETUP_HINT = {
+    A: "结构低点 = 最后一个收缩的低点",
+    B: "结构低点 = 支撑区下沿",
+    C: "结构低点 = 跌穿时的最低点，止损只减 0.25 ATR",
+    D: "结构低点 = 回踩低点或 200 天线，只用于 B 级"
+  };
+  const KJ_KEY = "risk-calc-kj-v1";
+  const kjIds = ["kjAcc", "kjHeld", "kjOpen", "kjEn", "kjLo", "kjAtr", "kjAdr", "kjTp"];
+  const kjSegs = ["kjLight", "kjGrade", "kjSetup", "kjEvent", "kjEntry"];
+  const KJ_DEFAULTS = { kjLight: "green", kjGrade: "A", kjSetup: "A", kjEvent: "no", kjEntry: "new", kjAcc: "50000", kjHeld: "0", kjOpen: "0", kjEn: "77", kjLo: "73", kjAtr: "3", kjAdr: "4.5", kjTp: "100" };
+
+  function kjLoad() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(KJ_KEY) || "null"); } catch (e) {}
+    kjApply(Object.assign({}, KJ_DEFAULTS, saved || {}));
+  }
+  function kjApply(s) {
+    kjIds.forEach(id => { $(id).value = s[id]; });
+    kjSegs.forEach(id => setSeg(id, s[id]));
+  }
+  function kjSave() {
+    const s = {};
+    kjSegs.forEach(id => { s[id] = state[id]; });
+    kjIds.forEach(id => { s[id] = $(id).value; });
+    try { localStorage.setItem(KJ_KEY, JSON.stringify(s)); } catch (e) {}
+  }
+  function kjFail(msg) {
+    $("kjErr").textContent = msg; $("kjErr").hidden = false; $("kjOut").hidden = true;
+  }
+  function kjCalc() {
+    kjSave();
+    const light = KJ_LIGHT[state.kjLight], grade = KJ_GRADE[state.kjGrade];
+    const setupC = state.kjSetup === "C";
+    $("kjSetupHint").textContent = KJ_SETUP_HINT[state.kjSetup];
+    const acc = num("kjAcc"), en = num("kjEn"), lo = num("kjLo"), atr = num("kjAtr"), adr = num("kjAdr"), tp = num("kjTp");
+    const held = num("kjHeld") > 0 ? num("kjHeld") : 0, open = num("kjOpen") > 0 ? num("kjOpen") : 0;
+
+    if (!(acc > 0)) return kjFail("请输入大于 0 的账户金额。");
+    if (!(en > 0) || !(lo > 0)) return kjFail("请填写进场价和结构低点。");
+    if (!(atr >= 0) || !(adr > 0)) return kjFail("请填写 ATR 和 ADR %。");
+    if (!(tp > en)) return kjFail("第一目标价要高于进场价。");
+    const stop = lo - (setupC ? 0.25 : 0.5) * atr;
+    const per = en - stop;
+    if (!(stop > 0)) return kjFail("算出的止损价不大于 0，请检查结构低点和 ATR。");
+    if (!(per > 0)) return kjFail("止损价要低于进场价。现在止损是 " + fmt(stop) + "，请检查结构低点和 ATR。");
+    $("kjErr").hidden = true; $("kjOut").hidden = false;
+
+    const evF = state.kjEvent === "yes" ? 0.5 : 1;
+    const rebuyF = state.kjEntry === "rebuy" ? 0.5 : 1;
+    const budget = acc * light.risk / 100 * grade.factor * evF * rebuyF;
+    let shares = Math.floor(budget / per);
+    const capShares = Math.floor(acc * grade.cap / 100 / en);
+    const capped = shares > capShares;
+    if (capped) shares = capShares;
+
+    const pos = shares * en, posPct = pos / acc * 100;
+    const loss = shares * per, riskPct = loss / acc * 100;
+    const stopPct = per / en * 100, ratio = stopPct / adr, rr = (tp - en) / per;
+    const totalRisk = open + riskPct, totalPos = held + posPct;
+
+    const fails = [], notes = [];
+    if (!light.grades.includes(state.kjGrade)) fails.push(light.name + "不能做 " + state.kjGrade + " 级");
+    if (state.kjLight === "red" && state.kjSetup !== "A") fails.push("红灯只做 A 型买点");
+    if (state.kjSetup === "D" && state.kjGrade !== "B") fails.push("D 型只用于 B 级");
+    if (ratio < 1.2) fails.push("止损只有 " + fmt(ratio) + " 倍 ADR，要 ≥ 1.2 倍。再往下放或换进场点");
+    if (stopPct > light.maxStop) fails.push("止损 " + fmt(stopPct, 1) + "% 超过" + light.name + "上限 " + light.maxStop + "%，等更紧的进场点");
+    if (rr < 2) fails.push("R:R 只有 " + fmt(rr, 1) + "，不到 2");
+    if (totalRisk > 3) fails.push("加上这笔总风险 " + fmt(totalRisk) + "%，超过 3%");
+    if (totalPos > light.posCap) fails.push("加上这笔总仓位 " + fmt(totalPos, 1) + "%，超过" + light.name + "上限 " + light.posCap + "%");
+    if (shares < 1) fails.push("算出来不到 1 股，这笔买不了");
+    if (capped) notes.push("单只上限 " + grade.cap + "% 把股数压到 " + fmt(shares, 0) + " 股，实际风险比预算小");
+    if (evF < 1) notes.push("事件风险已减半。止损单挡不住跳空，实际亏损可能更大");
+    if (rebuyF < 1) notes.push("买回单已减半。结构低点填这次回调的最低点，同一形态最多试 2 次");
+    if (state.kjGrade === "C") notes.push("C 级同时最多 1 笔，目标要在 200 天线或套牢区之前");
+
+    $("kjVerdict").className = "verdict " + (fails.length ? "bad" : "ok");
+    $("kjVerdict").textContent = fails.length ? "不做：" + fails.length + " 项不符合规则" : "符合第 5、6 关，还要过第 4 关清单";
+    $("kjShares").textContent = fmt(shares, 0) + " 股";
+    $("kjSharesSub").textContent = money(pos) + " · 占账户 " + fmt(posPct, 1) + "%";
+    $("kjStop").textContent = fmt(stop);
+    $("kjPct").textContent = fmt(stopPct, 1) + "%";
+    $("kjRatio").textContent = fmt(ratio) + " 倍";
+    $("kjRR").textContent = fmt(rr, 1) + "R";
+    $("kjLoss").textContent = "−" + money(loss);
+    $("kjRisk").textContent = fmt(riskPct) + "%";
+    $("kjTotalRisk").textContent = fmt(totalRisk) + "%";
+    $("kjTotalPos").textContent = fmt(totalPos, 1) + "%";
+    $("kjNotes").innerHTML = fails.map(t => '<span class="pill bad">' + t + "</span>").concat(notes.map(t => '<span class="pill warn">' + t + "</span>")).join("");
+
+    // 3-part exit: thirds for A and B, one exit at TP for C
+    const row = (a, b, c, d) => "<tr><td>" + a + "</td><td>" + b + "</td><td>" + c + "</td><td>" + d + "</td></tr>";
+    const third = Math.floor(shares / 3), last = shares - third * 2;
+    const rows = [row("止损 −1R", fmt(stop), fmt(shares, 0) + " 股", "全部离场")];
+    if (state.kjGrade === "C") {
+      rows.push(row("目标", fmt(tp), fmt(shares, 0) + " 股", "一次全卖"));
+    } else {
+      rows.push(row("+2R", fmt(en + 2 * per), fmt(third, 0) + " 股", "止损移到成本"));
+      rows.push(row("目标", fmt(tp), fmt(third, 0) + " 股", "锁利"));
+      rows.push(row("最后一份", "收盘决定", fmt(last, 0) + " 股", state.kjGrade === "B" ? "收盘跌穿 10 天线" : "收盘跌穿 20 天线"));
+    }
+    $("kjPlan").innerHTML = rows.join("");
+  }
+  kjSegs.forEach(g => $(g).addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    setSeg(g, b.dataset.v); kjCalc();
+  }));
+  kjIds.forEach(id => $(id).addEventListener("input", kjCalc));
+  $("kjReset").addEventListener("click", () => { kjApply(KJ_DEFAULTS); kjCalc(); });
 
   // ---- drawdown recovery ----
   const recoverPct = dd => dd / (100 - dd) * 100;
@@ -608,6 +878,7 @@ dl.defs code { font-family: var(--f-mono); font-size: 0.84rem; background: var(-
     const b = e.target.closest("button"); if (!b) return;
     setSeg(g, b.dataset.v);
     if (g === "mode") {
+
       // sensible fallback example values when switching
       if (b.dataset.v === "forex" && $("entry").value === DEFAULTS.entry && $("sl").value === DEFAULTS.sl) {
         $("entry").value = "1.0850"; $("sl").value = "1.0820"; $("tp").value = "1.0940";
@@ -638,7 +909,9 @@ dl.defs code { font-family: var(--f-mono); font-size: 0.84rem; background: var(-
   calc();
   setSeg("ddMode", "pct");
   recCalc();
-  showView(location.hash === "#remark" ? "remark" : "calc");
+  kjLoad();
+  kjCalc();
+  showView(["#calc", "#remark"].includes(location.hash) ? location.hash.slice(1) : "kj");
 })();
 </script>
 </body>

@@ -718,7 +718,10 @@ dl.defs code { font-family: var(--f-mono); font-size: 0.84rem; background: var(-
   function kjLoad() {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(KJ_KEY) || "null"); } catch (e) {}
-    kjApply(Object.assign({}, KJ_DEFAULTS, saved || {}));
+    // 从每日报告打开时（?light=green|yellow|red），按当天的大盘状态预选灯号
+    const urlLight = new URLSearchParams(location.search).get("light");
+    const fromReport = ["green", "yellow", "red"].includes(urlLight) ? { kjLight: urlLight } : {};
+    kjApply(Object.assign({}, KJ_DEFAULTS, saved || {}, fromReport));
   }
   function kjApply(s) {
     kjIds.forEach(id => { $(id).value = s[id]; });
